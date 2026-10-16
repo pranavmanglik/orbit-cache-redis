@@ -71,9 +71,10 @@ class RedisLockProvider:
     """Redis-backed leases with compare-and-renew/release and bounded provider lifecycle.
 
     Fencing counters are global within the configured key prefix so token ordering spans
-    resources. Redis script execution is atomic on one Redis history; failover or restore that
-    rolls back the counter can repeat or decrease tokens. Protected storage must reject stale
-    tokens, and deployments needing failover-safe fencing should use a consensus-backed allocator.
+    resources. Redis script execution is atomic on one Redis history; failover, restore, manual
+    deletion, or eviction of the counter can repeat or decrease tokens. Operators must protect the
+    counter from eviction and deletion. Protected storage must reject stale tokens, and deployments
+    needing failover-safe fencing should use a consensus-backed allocator.
     """
 
     def __init__(self, client: _RedisLockClient, *, prefix: str = "orbit:lock") -> None:

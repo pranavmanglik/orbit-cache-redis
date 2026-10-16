@@ -13,8 +13,10 @@
 # limitations under the License.
 """Optional Orbit Core plugin that registers and owns a Redis cache adapter."""
 
+from collections.abc import Mapping
+
 from orbit import Application
-from orbit.plugins import Plugin, PluginMetadata
+from orbit.plugins import ControlAction, ControlResult, Plugin, PluginMetadata
 from orbit_cache import CACHE_DEPENDENCY_KEY
 
 from orbit_cache_redis.cache import RedisCache
@@ -38,6 +40,14 @@ class RedisCachePlugin(Plugin):
         if not isinstance(cache, RedisCache):
             raise TypeError("RedisCachePlugin requires a RedisCache instance.")
         self.cache = cache
+        self.control_actions = (
+            ControlAction(
+                id="check-connection",
+                title="Check Redis connection",
+                description="Send a read-only PING without reading or changing cache keys.",
+                handler=self._check_connection,
+            ),
+        )
 
     def setup(self, application: Application) -> None:
         """Register the adapter against the provider-neutral cache contract."""
@@ -50,6 +60,12 @@ class RedisCachePlugin(Plugin):
     async def deactivate(self) -> None:
         """Close the cache during normal shutdown or partial-startup rollback."""
         await self.cache.aclose()
+
+    async def _check_connection(self, _: Mapping[str, object]) -> ControlResult:
+        """Run Redis PING through the adapter's bounded command lifecycle."""
+        if not await self.cache.ping():
+            return ControlResult("Redis did not confirm PING.", succeeded=False)
+        return ControlResult("Redis is reachable.")
 
 
 __all__ = ["RedisCachePlugin"]

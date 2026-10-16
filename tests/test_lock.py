@@ -16,7 +16,12 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from orbit_lock import LeaseLostError, LockClosedError, LockOperationError
+
+pytest.importorskip(
+    "orbit_lock", reason="install the optional orbit-lock package to test Redis locks"
+)
+
+from orbit_lock import LeaseLostError, LockClosedError, LockOperationError  # noqa: E402
 
 from orbit_cache_redis.lock import (
     _ACQUIRE_SCRIPT,

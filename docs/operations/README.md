@@ -12,17 +12,19 @@ Use the package README's constructor and deployment examples. Store credentials 
 
 ## Lifecycle, failure behavior, and limits
 
-`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability. The
-dependency chain is Core → cache capability → Redis adapter: applications can depend on
-`AsyncCache` without taking a Redis dependency, and installing Orbit Core alone does not install
-this package.
+`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability.
+The direct `RedisCache` API works without Core. `RedisCachePlugin` adds Core-owned resource
+registration and shutdown behavior and is available through the `core` extra.
 
 ## Installation
 
-Install the capability, Core, and adapter explicitly:
+Install the capability and adapter for direct use. Add the optional Core extra only when using the
+lifecycle plugin:
 
 ```bash
-python -m pip install orbit-core orbit-cache orbit-cache-redis
+python -m pip install orbit-cache orbit-cache-redis
+# Add the Core lifecycle plugin only when using it:
+python -m pip install 'orbit-cache-redis[core]'
 ```
 
 OAuth2 transaction persistence is a separate optional integration. Install `orbit-auth-oauth2` and the
@@ -32,7 +34,7 @@ Redis extra only in applications that use that capability:
 python -m pip install 'orbit-cache-redis[oauth2]'
 ```
 
-The adapter currently supports Python 3.11–3.14 and is pre-alpha; its public API is not stable.
+The adapter currently supports Python 3.11–3.14 and is alpha; its public API is not stable.
 
 ## Failure and deployment behavior
 
@@ -46,6 +48,11 @@ This implementation targets standalone Redis URLs supported by redis-py: `redis:
 and `unix://`. Redis Sentinel and cluster topologies, cache serialization, eviction policy, and
 application-level cache-aside behavior are not provided by the cache adapter. The adapter's client
 pool and cache state are external to Orbit Core; Core does not require Redis for its own operation.
+
+For distributed leases, protect the persistent fencing counter from deletion and eviction. A
+`noeviction` policy preserves it, but Redis memory exhaustion will then reject writes, including
+lease acquisition; monitor memory headroom and write errors. Eviction or loss of the counter can
+repeat fencing tokens and invalidate stale-writer protection.
 
 ## Production validation
 

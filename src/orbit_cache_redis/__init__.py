@@ -15,6 +15,5 @@
 
 from orbit_cache_redis.cache import RedisCache
 from orbit_cache_redis.config import RedisCacheConfig
-from orbit_cache_redis.plugin import RedisCachePlugin
 
-__all__ = ["RedisCache", "RedisCacheConfig", "RedisCachePlugin"]
+__all__ = ["RedisCache", "RedisCacheConfig"]

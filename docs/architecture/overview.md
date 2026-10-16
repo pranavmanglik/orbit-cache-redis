@@ -2,22 +2,22 @@
 
 ## Responsibility
 
-`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability. The
-dependency chain is Core → cache capability → Redis adapter: applications can depend on
-`AsyncCache` without taking a Redis dependency, and installing Orbit Core alone does not install
-this package.
+`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability.
+The direct cache API depends on `orbit-cache` and redis-py, not Core. `RedisCachePlugin` is a
+separate optional Core lifecycle integration installed through the `core` extra.
 
 ## Declared dependencies
 
 The following dependency declarations come from the checked-in manifests. Optional groups and development dependencies are called out separately.
 
 ### `pyproject.toml`
-- `orbit-core>=0.1.0a1,<0.2`
 - `orbit-cache>=0.1.0a1,<0.2`
 - `redis>=5,<9`
+- Optional `core` extra: `orbit-core>=0.1.0a1,<0.2` for `RedisCachePlugin`.
 - Optional `oauth2` group: `orbit-auth-oauth2>=0.1.0a1,<0.2`.
 - Optional `lock` group: `orbit-lock>=0.1.0a1,<0.2`.
-- Optional `dev` group: `pytest>=8,<10`, `pytest-asyncio>=0.24,<2`, `ruff>=0.8,<1`, `mypy>=1.13,<2`.
+- Optional `resilience` group: `orbit-resilience>=0.1.0a1,<0.2` for Redis-backed shared circuit state.
+- Development dependencies: Core for lifecycle tests, plus pytest, pytest-asyncio, Ruff, and mypy.
 
 Declared dependencies do not mean that optional providers or services are bundled with this package.
 
@@ -29,6 +29,7 @@ Representative implementation files in this checkout:
 - `src/orbit_cache_redis/cache.py`
 - `src/orbit_cache_redis/config.py`
 - `src/orbit_cache_redis/lock.py`
+- `src/orbit_cache_redis/resilience.py`
 - `src/orbit_cache_redis/oauth2.py`
 - `src/orbit_cache_redis/plugin.py`
 
@@ -50,3 +51,9 @@ pool and cache state are external to Orbit Core; Core does not require Redis for
 ## Boundary rules
 
 Keep provider SDKs, credentials, transports, and provider-specific error translation in provider adapters. Keep reusable capability contracts in the matching capability package and lifecycle orchestration in Core. Apply the relevant layer for this repository and preserve the dependency direction shown above.
+
+The optional circuit-state adapter borrows the caller's Redis client and implements the
+`orbit-resilience.CircuitStateStore` contract. Its Lua transitions coordinate workers on the
+configured Redis history, but Redis replication and failover do not provide consensus guarantees.
+The Redis cluster hash tag keeps each script's state and probe keys in one slot; this does not add
+Redis Cluster client support to the cache adapter itself.

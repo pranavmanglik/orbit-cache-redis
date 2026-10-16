@@ -22,8 +22,17 @@ import time
 from urllib.parse import urlencode
 
 import pytest
-from orbit_auth import OAuthAuthorizationRequest, OAuthTokenResponse
-from orbit_auth_oauth2 import (
+
+pytest.importorskip(
+    "orbit_auth_oauth2",
+    reason="install the optional orbit-auth-oauth2 package to test Redis OAuth storage",
+)
+pytest.importorskip(
+    "orbit_auth", reason="install the optional orbit-auth package to test Redis OAuth storage"
+)
+
+from orbit_auth import OAuthAuthorizationRequest, OAuthTokenResponse  # noqa: E402
+from orbit_auth_oauth2 import (  # noqa: E402
     OAuth2Flow,
     OAuth2Provider,
     OAuthTransaction,

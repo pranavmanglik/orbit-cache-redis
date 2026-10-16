@@ -14,6 +14,8 @@
 """Redis adapter contract tests use a fake client and need no Redis server."""
 
 import asyncio
+import tomllib
+from pathlib import Path
 
 import pytest
 from orbit import Application, ApplicationConfig
@@ -24,7 +26,17 @@ from orbit_cache import (
     CacheOperationError,
 )
 
-from orbit_cache_redis import RedisCache, RedisCacheConfig, RedisCachePlugin
+from orbit_cache_redis import RedisCache, RedisCacheConfig
+from orbit_cache_redis.plugin import RedisCachePlugin
+
+
+def test_core_lifecycle_dependency_is_optional() -> None:
+    """The Redis cache works without Core unless its plugin extra is installed."""
+    manifest = tomllib.loads(
+        (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+    assert not any(dep.startswith("orbit-core") for dep in manifest["dependencies"])
+    assert manifest["optional-dependencies"]["core"] == ["orbit-core>=0.1.0a1,<0.2"]
 
 
 class FakeRedis:
@@ -51,6 +63,10 @@ class FakeRedis:
     async def delete(self, *names: str) -> int:
         self._raise_if_failed()
         return int(self.values.pop(names[0], None) is not None)
+
+    async def ping(self) -> bool:
+        self._raise_if_failed()
+        return True
 
     async def aclose(self) -> None:
         self.close_started.set()
@@ -209,6 +225,8 @@ async def test_core_plugin_registers_contract_and_closes_adapter() -> None:
     plugin = RedisCachePlugin(cache)
     app.register_plugin(plugin)
     app.plugins.setup(app)
+    result = await plugin.control_actions[0].handler({})
+    assert result is not None and result.summary == "Redis is reachable."
     resolved: AsyncCache = app.container.resolve(CACHE_DEPENDENCY_KEY)
     assert resolved is cache
     await app.plugins.activate()

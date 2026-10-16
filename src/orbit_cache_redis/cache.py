@@ -38,6 +38,9 @@ class _RedisClient(Protocol):
     async def delete(self, *names: str) -> int:
         """Delete keys and return the number removed."""
 
+    async def ping(self) -> bool:
+        """Check server availability without reading or changing a cache key."""
+
     async def aclose(self) -> None:
         """Close the client and its owned connection pool."""
 
@@ -52,9 +55,9 @@ class RedisCache:
 
     def __init__(self, client: _RedisClient) -> None:
         """Wrap an async Redis client; the adapter takes responsibility for closing it."""
-        required_methods = ("get", "set", "delete", "aclose")
+        required_methods = ("get", "set", "delete", "ping", "aclose")
         if not all(callable(getattr(client, name, None)) for name in required_methods):
-            raise TypeError("client must provide async get, set, delete, and aclose methods.")
+            raise TypeError("client must provide async get, set, delete, ping, and aclose methods.")
         self._client = client
         self._closed = False
         self._closing = False
@@ -138,6 +141,18 @@ class RedisCache:
         except Exception:
             raise CacheOperationError("Redis cache delete failed.") from None
         return removed > 0
+
+    async def ping(self) -> bool:
+        """Return whether Redis answered a read-only PING command."""
+        try:
+            async with self._operation():
+                return bool(await self._client.ping())
+        except asyncio.CancelledError:
+            raise
+        except CacheOperationError:
+            raise
+        except Exception:
+            raise CacheOperationError("Redis cache health check failed.") from None
 
     async def aclose(self) -> None:
         """Reject new work, drain active commands, then close the owned client once."""

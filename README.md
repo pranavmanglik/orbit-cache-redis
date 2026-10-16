@@ -1,16 +1,21 @@
 # Orbit Cache Redis
 
-`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability. The
-dependency chain is Core → cache capability → Redis adapter: applications can depend on
-`AsyncCache` without taking a Redis dependency, and installing Orbit Core alone does not install
-this package.
+`orbit-cache-redis` is the optional Redis adapter for the provider-neutral `orbit-cache` capability.
+Applications can depend on `AsyncCache` without Redis. The direct `RedisCache` API does not require
+Core; the optional `RedisCachePlugin` integrates the adapter with Core's application lifecycle.
 
 ## Installation
 
-Install the capability, Core, and adapter explicitly:
+Install the capability and Redis adapter for direct use:
 
 ```bash
-python -m pip install orbit-core orbit-cache orbit-cache-redis
+python -m pip install orbit-cache orbit-cache-redis
+```
+
+For Core lifecycle management, install the optional extra:
+
+```bash
+python -m pip install 'orbit-cache-redis[core]'
 ```
 
 OAuth2 transaction persistence is a separate optional integration. Install `orbit-auth-oauth2` and the
@@ -20,7 +25,7 @@ Redis extra only in applications that use that capability:
 python -m pip install 'orbit-cache-redis[oauth2]'
 ```
 
-The adapter currently supports Python 3.11–3.14 and is pre-alpha; its public API is not stable.
+The adapter currently supports Python 3.11–3.14 and is alpha; its public API is not stable.
 
 ## Use the cache directly
 
@@ -64,7 +69,8 @@ shutdown:
 from os import environ
 
 from orbit import Application, ApplicationConfig
-from orbit_cache_redis import RedisCache, RedisCachePlugin
+from orbit_cache_redis import RedisCache
+from orbit_cache_redis.plugin import RedisCachePlugin
 
 app = Application(ApplicationConfig(name="orders"))
 cache = RedisCache.from_url(environ["ORBIT_REDIS_URL"])
@@ -78,6 +84,9 @@ scope rather than during application construction. If constructing and managing 
 the application code that creates it must call `await cache.aclose()` during shutdown. Closing is
 idempotent, prevents new commands, waits for in-flight commands, and then releases the pool; using
 a closed adapter raises `CacheOperationError`.
+
+The plugin contributes a read-only **Check Redis connection** action to Orbit CLI. It sends PING
+through the cache adapter without inspecting or changing key names or values.
 
 ## Failure and deployment behavior
 
@@ -100,8 +109,11 @@ and Lua compare-and-set operations protect renewal and release from stale owners
 are allocated from one persistent counter per key prefix and increase across resources on the same
 Redis history. Callers must pass the token to protected storage and have that storage reject stale
 tokens. Redis rollback or failover can roll back the counter, so this adapter does not provide
-failover-safe fencing or consensus guarantees. Choose a backend with stronger consistency when
-stale writes across failover would be unsafe.
+failover-safe fencing or consensus guarantees. The counter must also remain present: manual deletion
+or Redis eviction can reset it and repeat fencing tokens. Protect the counter from eviction and
+monitor memory pressure; with a `noeviction` policy, memory exhaustion makes acquisition fail rather
+than silently granting a reused token. Choose a backend with stronger consistency when stale writes
+across failover would be unsafe.
 
 The provider owns its lazy Redis client and must be closed after active application leases are
 released. It waits for in-flight Redis commands during shutdown, but it does not renew leases in
@@ -132,6 +144,44 @@ async def shutdown() -> None:
 
 The opt-in cache integration test exercises actual Redis bytes, TTL, delete, and connection
 shutdown when `ORBIT_REDIS_URL` is set. The package does not claim a Redis failover test.
+
+## Optional shared circuit breakers
+
+Install `orbit-cache-redis[resilience]` to use Redis as the shared state store for
+`orbit-resilience.CircuitBreaker`. Each worker must use the same stable circuit name and policy.
+The Redis client is borrowed by `RedisCircuitStateStore`; the application owns its pool and must
+close it during shutdown. A half-open probe uses a bounded lease, so set the lease longer than the
+maximum operation deadline plus the expected completion-write latency. State-store failures fail
+closed, and a failed outcome write after an operation ran is reported with
+`CircuitStateStoreError.operation_attempted=True` to make possible side-effect ambiguity explicit.
+
+```python
+from os import environ
+
+from redis.asyncio import Redis
+from orbit_resilience import CircuitBreaker
+from orbit_cache_redis.resilience import RedisCircuitStateStore
+
+redis = Redis.from_url(environ["ORBIT_REDIS_URL"])
+store = RedisCircuitStateStore(redis)
+payments_breaker = CircuitBreaker(
+    failure_threshold=5,
+    recovery_timeout=30,
+    state_store=store,
+    name="payments.primary",
+    probe_lease_timeout=45,
+)
+
+async def shutdown() -> None:
+    await redis.aclose()
+```
+
+Use TLS, Redis ACLs, network isolation, and a dedicated bounded key prefix. The adapter hashes
+circuit names and uses same-slot keys for Redis Cluster script execution. Choose an eviction policy
+that protects coordination state (commonly `noeviction`) and monitor memory pressure. Redis
+replication/failover can lose recent state; this adapter is not a consensus system and does not
+guarantee breaker state survives primary failover. `ORBIT_TEST_REDIS_URL` enables disposable Redis
+integration tests in the package test suite; CI provisions an isolated Redis service for them.
 
 ## Optional OAuth2 transaction store
 
@@ -179,6 +229,8 @@ pytest
 ruff check .
 mypy
 ```
+
+The lock and OAuth adapter tests are skipped when their separate capability packages are absent. To include them from a workspace checkout, install the sibling packages `orbit-lock`, `orbit-auth`, and `orbit-auth-oauth2`, then install this package with `[lock,oauth2,dev]`. They use fakes and do not require a live Redis server.
 
 Licensed under Apache-2.0.
 
